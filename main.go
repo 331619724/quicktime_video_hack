@@ -249,26 +249,35 @@ func startWithConsumer(consumer screencapture.CmSampleBufConsumer, udid string, 
 	waitForSigInt(stopSignal)
 
 	if dump != "" {
-		dumper, err := screencapture.NewPacketDumper(&adapter, dump)
-		if err != nil {
-			printErrJSON(err, "could not create dump file")
-		}
-
-		mp := screencapture.NewMessageProcessor(&dumper, stopSignal, consumer)
-		dumper.SetReceiver(&mp)
-		err = adapter.StartReading(device, dumper, stopSignal)
-		consumer.Stop()
-		if err != nil {
-			printErrJSON(err, "failed connecting to usb")
-		}
+		startWithConsumerAndDump(adapter, consumer, device, stopSignal, dump)
 	} else {
-		mp := screencapture.NewMessageProcessor(&adapter, stopSignal, consumer)
+		startWithConsumerWithoutDump(adapter, consumer, device, stopSignal)
+	}
+}
 
-		err = adapter.StartReading(device, &mp, stopSignal)
-		consumer.Stop()
-		if err != nil {
-			printErrJSON(err, "failed connecting to usb")
-		}
+func startWithConsumerAndDump(adapter screencapture.UsbAdapter, consumer screencapture.CmSampleBufConsumer, device screencapture.IosDevice, stopSignal chan interface{}, dump string) {
+	dumper, err := screencapture.NewPacketDumper(&adapter, dump)
+	if err != nil {
+		printErrJSON(err, "could not create dump file")
+		return
+	}
+
+	mp := screencapture.NewMessageProcessor(&dumper, stopSignal, consumer)
+	dumper.SetReceiver(&mp)
+	err = adapter.StartReading(device, dumper, stopSignal)
+	consumer.Stop()
+	if err != nil {
+		printErrJSON(err, "failed connecting to usb")
+	}
+}
+
+func startWithConsumerWithoutDump(adapter screencapture.UsbAdapter, consumer screencapture.CmSampleBufConsumer, device screencapture.IosDevice, stopSignal chan interface{}) {
+	mp := screencapture.NewMessageProcessor(&adapter, stopSignal, consumer)
+
+	err := adapter.StartReading(device, &mp, stopSignal)
+	consumer.Stop()
+	if err != nil {
+		printErrJSON(err, "failed connecting to usb")
 	}
 }
 
