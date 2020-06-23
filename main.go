@@ -22,7 +22,7 @@ func main() {
 Usage:
   qvh devices [-v]
   qvh activate [--udid=<udid>] [-v]
-  qvh record <h264file> <wavfile> [-v] [--udid=<udid>]
+  qvh record <h264file> <wavfile> [-v] [--udid=<udid>] [--dump=<dumpfile>]
   qvh gstreamer [--pipeline=<pipeline>] [--examples] [-v]
   qvh --version | version
 
@@ -86,7 +86,11 @@ The commands work as following:
 			printErrJSON(err, "Missing <wavfile> parameter. Please specify a valid path like '/home/me/out.raw'")
 			return
 		}
-		record(h264FilePath, waveFilePath, udid)
+
+		dump, _ := arguments.String("--dump")
+		log.Debugf("requested to dump packets to:'%s'", dump)
+
+		record(h264FilePath, waveFilePath, udid, dump)
 	}
 	gstreamerCommand, _ := arguments.Bool("gstreamer")
 	if gstreamerCommand {
@@ -144,13 +148,13 @@ func startGStreamerWithCustomPipeline(udid string, pipelineString string) {
 		printErrJSON(err, "Failed creating custom pipeline")
 		return
 	}
-	startWithConsumer(gStreamer, udid)
+	startWithConsumer(gStreamer, udid, "")
 }
 
 func startGStreamer(udid string) {
 	log.Debug("Starting Gstreamer")
 	gStreamer := gstadapter.New()
-	startWithConsumer(gStreamer, udid)
+	startWithConsumer(gStreamer, udid, "")
 }
 
 // Just dump a list of what was discovered to the console
@@ -189,7 +193,7 @@ func activate(udid string) {
 	})
 }
 
-func record(h264FilePath string, wavFilePath string, udid string) {
+func record(h264FilePath string, wavFilePath string, udid string, dump string) {
 	log.Debugf("Writing video output to:'%s' and audio to: %s", h264FilePath, wavFilePath)
 
 	h264File, err := os.Create(h264FilePath)
@@ -224,10 +228,10 @@ func record(h264FilePath string, wavFilePath string, udid string) {
 		}
 
 	}()
-	startWithConsumer(writer, udid)
+	startWithConsumer(writer, udid, dump)
 }
 
-func startWithConsumer(consumer screencapture.CmSampleBufConsumer, udid string) {
+func startWithConsumer(consumer screencapture.CmSampleBufConsumer, udid string, dump string) {
 	device, err := screencapture.FindIosDevice(udid)
 	if err != nil {
 		printErrJSON(err, "no device found to activate")
@@ -244,12 +248,27 @@ func startWithConsumer(consumer screencapture.CmSampleBufConsumer, udid string) 
 	stopSignal := make(chan interface{})
 	waitForSigInt(stopSignal)
 
-	mp := screencapture.NewMessageProcessor(&adapter, stopSignal, consumer)
+	if dump != "" {
+		dumper, err := screencapture.NewPacketDumper(&adapter, dump)
+		if err != nil {
+			printErrJSON(err, "could not create dump file")
+		}
 
-	err = adapter.StartReading(device, &mp, stopSignal)
-	consumer.Stop()
-	if err != nil {
-		printErrJSON(err, "failed connecting to usb")
+		mp := screencapture.NewMessageProcessor(&dumper, stopSignal, consumer)
+		dumper.SetReceiver(&mp)
+		err = adapter.StartReading(device, dumper, stopSignal)
+		consumer.Stop()
+		if err != nil {
+			printErrJSON(err, "failed connecting to usb")
+		}
+	} else {
+		mp := screencapture.NewMessageProcessor(&adapter, stopSignal, consumer)
+
+		err = adapter.StartReading(device, &mp, stopSignal)
+		consumer.Stop()
+		if err != nil {
+			printErrJSON(err, "failed connecting to usb")
+		}
 	}
 }
 
